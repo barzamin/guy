@@ -11,6 +11,7 @@ pub struct Gal16V8 {
     pub ac0: bool,
     pub olmcs: Vec<OLMC>,
     pub signature: Vec<u8>,
+    pub ptd: Vec<Vec<bool>>, // macrocell # |-> enabled prod terms
 }
 
 fn to_u8(slice: &[bool]) -> u8 {
@@ -33,6 +34,7 @@ impl Gal16V8 {
             ac0: fuses[2193],
             olmcs,
             signature,
+            ptd: fuses[2128..=2191].chunks(8).map(|x| x.to_vec()).collect(),
         }
     }
 }

@@ -30,6 +30,7 @@ fn main() -> Result<()> {
             println!("syn: {:?}, ac0: {:?}", lesbian.syn, lesbian.ac0);
             println!("OLMCs: {:?}", lesbian.olmcs);
             println!("sig: {:?}", String::from_utf8(lesbian.signature));
+            println!("ptd: {:?}", lesbian.ptd);
         }
     }
 
