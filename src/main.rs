@@ -23,11 +23,13 @@ fn main() -> Result<()> {
     let dat = fs::read(opt.input_path)?;
     let jd = JEDECFile::from_bytes(&dat)?;
 
-    println!("{:#?}", jd);
     match opt.device {
         Device::Gal16V8 => {
             let lesbian = Gal16V8::new(&jd.f);
-            println!("{:#?}", lesbian);
+            // println!("{:#?}", lesbian);
+            println!("syn: {:?}, ac0: {:?}", lesbian.syn, lesbian.ac0);
+            println!("OLMCs: {:?}", lesbian.olmcs);
+            println!("sig: {:?}", String::from_utf8(lesbian.signature));
         }
     }
 
