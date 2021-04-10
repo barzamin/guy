@@ -6,6 +6,8 @@ use jedec::JEDECFile;
 use structopt::StructOpt;
 
 mod dev;
+mod circuit;
+
 use dev::gal16v8::Gal16V8;
 use dev::Device;
 
@@ -25,8 +27,9 @@ fn main() -> Result<()> {
 
     match opt.device {
         Device::Gal16V8 => {
-            let lesbian = Gal16V8::new(&jd.f);
+            let lesbian = Gal16V8::new(&jd.f)?;
             // println!("{:#?}", lesbian);
+            println!("mode: {:?}", lesbian.mode);
             println!("syn: {:?}, ac0: {:?}", lesbian.syn, lesbian.ac0);
             println!("OLMCs: {:?}", lesbian.olmcs);
             println!("sig: {:?}", String::from_utf8(lesbian.signature));
