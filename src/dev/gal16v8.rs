@@ -39,17 +39,22 @@ impl Gal16V8 {
         let ac0 = fuses[2193];
 
         let mode = match (syn, ac0) {
-            (false, true ) => Ok(Mode::Registered),
-            (true , true ) => Ok(Mode::Complex),
-            (true , false) => Ok(Mode::Simple),
+            (false, true) => Ok(Mode::Registered),
+            (true, true) => Ok(Mode::Complex),
+            (true, false) => Ok(Mode::Simple),
             (false, false) => Err(anyhow!("invalid fuses")), // todo result
         }?;
 
-        let olmcs = fuses[2048..=2055].iter()
-                .zip(fuses[2120..=2127].iter())
-                .map(|(&xor, &ac1)| OLMC { xor, ac1 }).collect();
+        let olmcs = fuses[2048..=2055]
+            .iter()
+            .zip(fuses[2120..=2127].iter())
+            .map(|(&xor, &ac1)| OLMC { xor, ac1 })
+            .collect();
 
-        let signature = fuses[2056..=2119].chunks(8).map(|octet| to_u8(octet)).collect();
+        let signature = fuses[2056..=2119]
+            .chunks(8)
+            .map(|octet| to_u8(octet))
+            .collect();
 
         Ok(Self {
             fuses: fuses.to_vec(),
@@ -68,6 +73,9 @@ mod test {
     use super::*;
     #[test]
     fn test_to_u8() {
-        assert_eq!(0x43, to_u8(&[false, true, false, false, false, false, true, true]));
+        assert_eq!(
+            0x43,
+            to_u8(&[false, true, false, false, false, false, true, true])
+        );
     }
 }

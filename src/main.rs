@@ -5,8 +5,8 @@ use anyhow::Result;
 use jedec::JEDECFile;
 use structopt::StructOpt;
 
-mod dev;
 mod circuit;
+mod dev;
 
 use dev::gal16v8::Gal16V8;
 use dev::Device;
