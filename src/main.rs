@@ -71,18 +71,27 @@ fn main() -> Result<()> {
 
             dump_fuses(&lesb.olmcs, &lesb.fuses);
             println!();
-            let cols = lesb.col_signals();
-            println!("{} signals: {:?}", "column".blue(), cols);
+            println!("{} signals", "column".blue());
+            print!("{{");
+            for (j, col) in lesb.cols.iter().enumerate() {
+                print!("{} => {},", j, format!("{}", col));
+            }
+            println!("}}");
             println!();
-            let rows: Vec<_> = (0..64).map(|i| lesb.and_term(i, &cols)).collect();
-            for (i, term) in rows.iter().enumerate() {
+            for (i, term) in lesb.rows.iter().enumerate() {
                 if !term.is_always_bot() {
-                    println!("{:>2}/{:>4}. {}", i, i * 32, term);
+                    println!(
+                        "{}/{}. {}",
+                        format!("{:>2}", i).red(),
+                        format!("{:>4}", i*32).red(),
+                        term
+                    );
                 }
             }
 
             for i in 0..8 {
-                println!("{}", lesb.or_term(i, &rows));
+                println!("{}. ┌ {}", i, lesb.or_term(i));
+                println!("   └ {:?}", lesb.out_buffer(i));
             }
         }
     }
