@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use std::fmt;
 
 // use crate::circuit::{Signal, SignalKey, Circuit};
 
@@ -36,10 +37,65 @@ pub enum Mode {
     Simple,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColSignal {
     Pin { id: u32, n: bool },
     FlopOut { olmc: usize, n: bool },
+}
+
+impl fmt::Display for ColSignal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            ColSignal::Pin { id, n } => {
+                if n {
+                    write!(f, "~")?;
+                }
+                write!(f, "p{}", id)?;
+            }
+            ColSignal::FlopOut { olmc, n } => {
+                if n {
+                    write!(f, "~")?;
+                }
+                write!(f, "q{}", olmc)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub trait Reducible {
+    /// Is the equation (fragment) trivially bottom?
+    fn is_always_bot(&self) -> bool;
+}
+
+#[derive(Debug)]
+pub struct ProdTerm(Vec<ColSignal>);
+
+impl Reducible for ProdTerm {
+    fn is_always_bot(&self) -> bool {
+        for factor in &self.0 {
+            if self.0.contains(&factor.inverted()) {
+                return true
+            }
+        }
+
+        false
+    }
+}
+
+impl fmt::Display for ProdTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut factors = self.0.iter().peekable();
+        while let Some(factor) = factors.next() {
+            write!(f, "{}", factor)?;
+            if factors.peek().is_some() {
+                write!(f, " & ")?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl ColSignal {
@@ -98,12 +154,16 @@ impl Gal16V8 {
 
     pub fn olmc_feedback(&self, idx: usize) -> ColSignal {
         match self.mode {
-            Mode::Registered => if !self.olmcs[idx].ac1 { // registered
-                ColSignal::flop(idx).inverted()
-            } else { // combinatorial
-                // olmc i has pin 19-i for i∈[0,7]
-                ColSignal::pin(19 - idx as u32)
-            },
+            Mode::Registered => {
+                if !self.olmcs[idx].ac1 {
+                    // registered
+                    ColSignal::flop(idx).inverted()
+                } else {
+                    // combinatorial
+                    // olmc i has pin 19-i for i∈[0,7]
+                    ColSignal::pin(19 - idx as u32)
+                }
+            }
             _ => unimplemented!(),
         }
     }
@@ -120,15 +180,32 @@ impl Gal16V8 {
             Mode::Registered => {
                 // less err-prone way of constructing
                 let mut sigs = Vec::new();
-                for i in 0..8 { // i ∈ [0, 7] is macrocell index
+                for i in 0..8 {
+                    // i ∈ [0, 7] is macrocell index
                     push_pair(&mut sigs, ColSignal::pin(i as u32 + 2));
                     push_pair(&mut sigs, self.olmc_feedback(i));
                 }
 
                 sigs
-            },
+            }
             _ => unimplemented!(),
         }
+    }
+
+    pub fn and_term(&self, i: usize, cols: &[ColSignal]) -> ProdTerm {
+        ProdTerm(
+            self.and_term_fuses(i)
+                .iter()
+                .zip(cols.iter())
+                .filter(|(&fuse, &_factor)| !fuse)
+                .map(|(&_fuse, &factor)| factor)
+                .collect(),
+        )
+    }
+
+    pub fn and_term_fuses(&self, i: usize) -> &[bool] {
+        assert!(i < 64);
+        &self.fuses[i * 32..i * 32 + 32]
     }
 }
 

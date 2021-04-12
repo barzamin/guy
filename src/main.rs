@@ -6,11 +6,9 @@ use colored::*;
 use jedec::JEDECFile;
 use structopt::StructOpt;
 
-mod circuit;
 mod dev;
 
-use circuit::Circuit;
-use dev::gal16v8::{Gal16V8, OLMC};
+use dev::gal16v8::{Gal16V8, OLMC, Reducible};
 use dev::Device;
 
 #[derive(StructOpt)]
@@ -26,8 +24,13 @@ fn dump_fuses(olmcs: &[OLMC], fuses: &[bool]) {
     for (i, row) in fuses[0..=2047].chunks(32).enumerate() {
         if i % 8 == 0 {
             let idx = i / 8;
-            if i > 0 { println!(); }
-            println!("-- olmc{}: xor={}, ac1={} --", idx, olmcs[idx].xor as u8, olmcs[idx].ac1 as u8);
+            if i > 0 {
+                println!();
+            }
+            println!(
+                "-- olmc{}: xor={}, ac1={} --",
+                idx, olmcs[idx].xor as u8, olmcs[idx].ac1 as u8
+            );
         }
         print!("{}: ", format!("{:>4}", i * 32).red());
         for (i, bit) in row.iter().enumerate() {
@@ -55,7 +58,6 @@ fn main() -> Result<()> {
     match opt.device {
         Device::Gal16V8 => {
             let lesb = Gal16V8::new(&jd.f)?;
-            let cir = Circuit::new();
             println!("mode: {:?}", lesb.mode);
             println!("syn: {:?}, ac0: {:?}", lesb.syn, lesb.ac0);
             println!("OLMCs: {:?}", lesb.olmcs);
@@ -64,7 +66,15 @@ fn main() -> Result<()> {
 
             dump_fuses(&lesb.olmcs, &lesb.fuses);
             println!();
-            println!("{} signals: {:?}", "column".blue(), lesb.col_signals());
+            let cols = lesb.col_signals();
+            println!("{} signals: {:?}", "column".blue(), cols);
+            println!();
+            for i in 0..64 {
+                let term = lesb.and_term(i, &cols);
+                if !term.is_always_bot() {
+                    println!("{:>2}/{:>4}. {}", i, i*32, term);
+                }
+            }
         }
     }
 
