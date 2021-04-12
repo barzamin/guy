@@ -8,7 +8,7 @@ use structopt::StructOpt;
 
 mod dev;
 
-use dev::gal16v8::{Gal16V8, OLMC, Reducible};
+use dev::gal16v8::{Gal16V8, Reducible, OLMC};
 use dev::Device;
 
 #[derive(StructOpt)]
@@ -35,8 +35,8 @@ fn dump_fuses(olmcs: &[OLMC], fuses: &[bool]) {
         print!("{}: ", format!("{:>4}", i * 32).red());
         for (i, bit) in row.iter().enumerate() {
             match bit {
-                true => print!("{}", "1".bright_magenta()),
-                false => print!("{}", "0".dimmed().white()),
+                false => print!("{}", "0".bright_magenta()),
+                true => print!("{}", "1".dimmed().white()),
             }
             if i < 31 {
                 if (i + 1) % 4 == 0 {
@@ -58,10 +58,15 @@ fn main() -> Result<()> {
     match opt.device {
         Device::Gal16V8 => {
             let lesb = Gal16V8::new(&jd.f)?;
-            println!("mode: {:?}", lesb.mode);
-            println!("syn: {:?}, ac0: {:?}", lesb.syn, lesb.ac0);
-            println!("OLMCs: {:?}", lesb.olmcs);
-            println!("sig: {:?}", &lesb.signature);
+            println!(
+                "mode: {:?} (syn={}, ac0={})",
+                lesb.mode, lesb.syn as u8, lesb.ac0 as u8
+            );
+            println!("OLMCs:");
+            for (i, olmc) in lesb.olmcs.iter().enumerate() {
+                println!(" [{}] - {:?}", i, olmc);
+            }
+            println!("sig: {:?}", std::str::from_utf8(&lesb.signature).unwrap());
             println!("ptd: {:?}", lesb.ptd);
 
             dump_fuses(&lesb.olmcs, &lesb.fuses);
@@ -69,11 +74,15 @@ fn main() -> Result<()> {
             let cols = lesb.col_signals();
             println!("{} signals: {:?}", "column".blue(), cols);
             println!();
-            for i in 0..64 {
-                let term = lesb.and_term(i, &cols);
+            let rows: Vec<_> = (0..64).map(|i| lesb.and_term(i, &cols)).collect();
+            for (i, term) in rows.iter().enumerate() {
                 if !term.is_always_bot() {
-                    println!("{:>2}/{:>4}. {}", i, i*32, term);
+                    println!("{:>2}/{:>4}. {}", i, i * 32, term);
                 }
+            }
+
+            for i in 0..8 {
+                println!("{}", lesb.or_term(i, &rows));
             }
         }
     }

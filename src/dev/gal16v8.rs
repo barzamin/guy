@@ -20,7 +20,7 @@ pub struct Gal16V8 {
     pub signature: Vec<u8>,
 
     pub olmcs: Vec<OLMC>,
-    pub ptd: Vec<Vec<bool>>, // macrocell # |-> enabled prod terms
+    pub ptd: Vec<bool>, // row # |-> enabled prod terms
 }
 
 fn to_u8(slice: &[bool]) -> u8 {
@@ -64,19 +64,28 @@ impl fmt::Display for ColSignal {
     }
 }
 
+/// Reduce terms or LIR
 pub trait Reducible {
     /// Is the equation (fragment) trivially bottom?
     fn is_always_bot(&self) -> bool;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProdTerm(Vec<ColSignal>);
+
+#[derive(Debug, Clone)]
+pub struct SumTerm(Vec<ProdTerm>);
+
+pub struct OutBuffer {
+    inverted: bool, // usu true
+    sig: Option<SumTerm>, // could be None for Simple {AC1=1 XOR=1}
+}
 
 impl Reducible for ProdTerm {
     fn is_always_bot(&self) -> bool {
         for factor in &self.0 {
             if self.0.contains(&factor.inverted()) {
-                return true
+                return true;
             }
         }
 
@@ -94,6 +103,23 @@ impl fmt::Display for ProdTerm {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl fmt::Display for SumTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.len() == 0 {
+            write!(f, "0")?;
+        } else {
+            let mut terms = self.0.iter().peekable();
+            while let Some(term) = terms.next() {
+                write!(f, "({})", term)?;
+                if terms.peek().is_some() {
+                    write!(f, " | ")?;
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -118,7 +144,9 @@ impl ColSignal {
 
 impl Gal16V8 {
     pub fn new(fuses: &[bool]) -> Result<Self> {
-        assert_eq!(2194, fuses.len());
+        if fuses.len() != 2194 {
+            return Err(anyhow!("wrong number of fuses"));
+        }
 
         let syn = fuses[2192];
         let ac0 = fuses[2193];
@@ -148,7 +176,7 @@ impl Gal16V8 {
             mode,
             olmcs,
             signature,
-            ptd: fuses[2128..=2191].chunks(8).map(|x| x.to_vec()).collect(),
+            ptd: fuses[2128..=2191].to_vec(),
         })
     }
 
@@ -188,6 +216,28 @@ impl Gal16V8 {
 
                 sigs
             }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn or_term(&self, olmc_idx: usize, row_terms: &[ProdTerm]) -> SumTerm {
+        match self.mode {
+            Mode::Registered => {
+                let col_idxs = if !self.olmcs[olmc_idx].ac1 {
+                    // registered
+                    olmc_idx * 8..olmc_idx * 8 + 8
+                } else {
+                    // combinatorial
+                    olmc_idx * 8 + 1..olmc_idx * 8 + 8
+                };
+                SumTerm(
+                    col_idxs
+                        .filter(|&i| self.ptd[i] && !row_terms[i].is_always_bot())
+                        .map(|i| row_terms[i].clone())
+                        .collect(),
+                )
+            }
+
             _ => unimplemented!(),
         }
     }
