@@ -2,30 +2,42 @@ use anyhow::{anyhow, Result};
 use std::fmt;
 
 #[derive(Debug)]
-pub struct OLMC {
+pub struct Xor<T> {
+    pub sig: T,
     pub xor: bool,
-    pub ac1: bool,
+}
+
+type OLMCIdx = usize;
+
+#[derive(Debug)]
+pub enum OLMCType {
+    Reg,
+    CombFeedback,
+    Comb,
+    CombInput,
+}
+
+impl OLMCType {
+    pub fn feedback(&self, idx: OLMCIdx) -> ColSignal {
+        match *self {
+            Self::Reg => ColSignal::flop(idx).inverted(),
+            Self::CombFeedback => ColSignal::pin(19 - idx as u32), // olmc i has pin 19-i for i∈[0,7]
+            _ => unimplemented!(),
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct Gal16V8 {
-    pub fuses: Vec<bool>,
-
-    pub syn: bool,
-    pub ac0: bool,
-    pub mode: Mode,
-
-    pub signature: Vec<u8>,
-
-    pub olmcs: Vec<OLMC>,
-    pub ptd: Vec<bool>, // row # |-> enabled prod terms
-
-    pub cols: Vec<ColSignal>,
-    pub rows: Vec<ProdTerm>,
-}
-
-fn to_u8(slice: &[bool]) -> u8 {
-    slice.iter().fold(0, |acc, &b| (acc << 1) | (b as u8))
+pub enum ElaboratedOLMC {
+    Registered {
+        idx: usize,
+        d: Xor<SumTerm>,
+    },
+    Complex {
+        idx: usize,
+        d: Xor<SumTerm>,
+        oe: ProdTerm,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,6 +54,153 @@ pub enum Mode {
 pub enum ColSignal {
     Pin { id: u32, n: bool },
     FlopOut { olmc: usize, n: bool },
+}
+
+
+#[derive(Debug, Clone)]
+pub struct ProdTerm(Vec<ColSignal>);
+
+#[derive(Debug, Clone)]
+pub struct SumTerm(Vec<ProdTerm>);
+
+#[derive(Debug)]
+pub struct Fuses {
+    inner: Vec<bool>,
+}
+
+impl ElaboratedOLMC {
+    fn outpin(&self) -> usize {
+        use ElaboratedOLMC::*;
+        19 - match self {
+            Registered { idx, .. } => idx,
+            Complex { idx, .. } => idx,
+        }
+    }
+}
+
+impl fmt::Display for ElaboratedOLMC {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ElaboratedOLMC::*;
+        match self {
+            Registered { idx, d } => {
+                writeln!(f, "always @(posedge clk)")?;
+                writeln!(f, "  {} <= {};", format!("q{}", idx), d)?;
+                writeln!(f, "assign {} = oe ? {} : 1'bz;", format!("p{}", self.outpin()), format!("q{}", idx))?;
+            },
+            Complex { idx, d, oe } => {
+                writeln!(f, "assign {} = ({}) ? {} : 1'bz;", format!("p{}", self.outpin()), oe, d)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<T> fmt::Display for Xor<T> where T: fmt::Display {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.xor {
+            write!(f, "~")?;
+        }
+
+        write!(f, "({})", self.sig)?;
+
+        Ok(())
+    }
+}
+
+impl Fuses {
+    pub fn new(inner: Vec<bool>) -> Result<Self> {
+        if inner.len() != 2194 {
+            return Err(anyhow!("wrong number of fuses"));
+        }
+
+        Ok(Self { inner })
+    }
+
+    pub fn syn(&self) -> bool {
+        self.inner[2192]
+    }
+
+    pub fn ac0(&self) -> bool {
+        self.inner[2193]
+    }
+
+    pub fn signature(&self) -> Vec<u8> {
+        self.inner[2056..=2119]
+            .chunks(8)
+            .map(|octet| to_u8(octet))
+            .collect()
+    }
+
+    pub fn xor(&self, idx: usize) -> bool {
+        assert!(idx < 8);
+        self.inner[2048 + idx]
+    }
+
+    pub fn ac1(&self, idx: usize) -> bool {
+        assert!(idx < 8);
+        self.inner[2120 + idx]
+    }
+
+    pub fn ptd(&self, idx: usize) -> bool {
+        assert!(idx < 64);
+        self.inner[2128 + idx]
+    }
+
+    pub fn mode(&self) -> Result<Mode> {
+        match (self.syn(), self.ac0()) {
+            (false, true) => Ok(Mode::Registered),
+            (true, true) => Ok(Mode::Complex),
+            (true, false) => Ok(Mode::Simple),
+            _ => Err(anyhow!("invalid fuses")),
+        }
+    }
+
+    pub fn grid(&self) -> &[bool] {
+        &self.inner[0..=2047]
+    }
+
+    pub fn olmc_type(&self, idx: usize, mode: Mode) -> OLMCType {
+        match mode {
+            Mode::Registered => {
+                if self.ac1(idx) {
+                    OLMCType::CombFeedback
+                } else {
+                    OLMCType::Reg
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn and_term_fuses(&self, i: usize) -> &[bool] {
+        assert!(i < 64);
+        &self.inner[i * 32..i * 32 + 32]
+    }
+
+    fn and_term(&self, cols: &[ColSignal], i: usize) -> ProdTerm {
+        ProdTerm(
+            self.and_term_fuses(i)
+                .iter()
+                .zip(cols.iter())
+                .filter(|(&fuse, &_factor)| !fuse)
+                .map(|(&_fuse, &factor)| factor)
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct Gal16V8 {
+    pub fuses: Fuses,
+    pub mode: Mode,
+    pub elaboration: Vec<ElaboratedOLMC>,
+    // pub cols: Vec<ColSignal>,
+    // pub rows: Vec<ProdTerm>,
+}
+
+fn to_u8(slice: &[bool]) -> u8 {
+    slice.iter().fold(0, |acc, &b| (acc << 1) | (b as u8))
 }
 
 impl fmt::Display for ColSignal {
@@ -69,33 +228,6 @@ impl fmt::Display for ColSignal {
 pub trait Reducible {
     /// Is the equation (fragment) trivially bottom?
     fn is_always_bot(&self) -> bool;
-}
-
-#[derive(Debug, Clone)]
-pub struct ProdTerm(Vec<ColSignal>);
-
-#[derive(Debug, Clone)]
-pub struct SumTerm(Vec<ProdTerm>);
-
-#[derive(Debug)]
-pub enum OE {
-    Const(bool),
-    ProdTerm(ProdTerm),
-    OEPin,
-}
-
-#[derive(Debug)]
-pub enum OutSig {
-    FlopOut(usize),
-    SumTerm { term: SumTerm, xor: bool },
-    Const(bool),
-}
-
-#[derive(Debug)]
-pub struct OutBuffer {
-    inverted: bool, // usu true
-    oe: OE,
-    sig: OutSig,
 }
 
 impl Reducible for ProdTerm {
@@ -127,7 +259,7 @@ impl fmt::Display for ProdTerm {
 impl fmt::Display for SumTerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.0.len() == 0 {
-            write!(f, "0")?;
+            write!(f, "1'b0")?;
         } else {
             let mut terms = self.0.iter().peekable();
             while let Some(term) = terms.next() {
@@ -161,64 +293,35 @@ impl ColSignal {
 
 impl Gal16V8 {
     pub fn new(fuses: &[bool]) -> Result<Self> {
-        if fuses.len() != 2194 {
-            return Err(anyhow!("wrong number of fuses"));
-        }
+        let fuses = Fuses::new(fuses.to_vec())?;
+        let mode = fuses.mode()?;
 
-        let syn = fuses[2192];
-        let ac0 = fuses[2193];
+        let cols = Self::col_signals(mode, &fuses);
+        println!("{:?}", cols);
+        // let rows: Vec<_> = (0..64).map(|i| Self::and_term(&fuses, &cols, i)).collect();
 
-        let mode = match (syn, ac0) {
-            (false, true) => Ok(Mode::Registered),
-            (true, true) => Ok(Mode::Complex),
-            (true, false) => Ok(Mode::Simple),
-            _ => Err(anyhow!("invalid fuses")),
-        }?;
-
-        let olmcs: Vec<_> = fuses[2048..=2055]
-            .iter()
-            .zip(fuses[2120..=2127].iter())
-            .map(|(&xor, &ac1)| OLMC { xor, ac1 })
-            .collect();
-
-        let signature = fuses[2056..=2119]
-            .chunks(8)
-            .map(|octet| to_u8(octet))
-            .collect();
-
-        let cols = Self::col_signals(mode, &olmcs);
-        let rows: Vec<_> = (0..64).map(|i| Self::and_term(&fuses, &cols, i)).collect();
+        let elaboration = Self::elaborate(mode, &fuses, &cols);
 
         Ok(Self {
-            fuses: fuses.to_vec(),
-            syn: fuses[2192],
-            ac0: fuses[2193],
+            fuses,
             mode,
-            olmcs,
-            signature,
-            ptd: fuses[2128..=2191].to_vec(),
-            cols,
-            rows,
+            elaboration
         })
     }
 
-    fn olmc_feedback(mode: Mode, olmcs: &[OLMC], idx: usize) -> ColSignal {
-        match mode {
-            Mode::Registered => {
-                if !olmcs[idx].ac1 {
-                    // registered
-                    ColSignal::flop(idx).inverted()
-                } else {
-                    // combinatorial
-                    // olmc i has pin 19-i for i∈[0,7]
-                    ColSignal::pin(19 - idx as u32)
-                }
-            }
-            _ => unimplemented!(),
-        }
+    fn elaborate(mode: Mode, fuses: &Fuses, cols: &[ColSignal]) -> Vec<ElaboratedOLMC> {
+        (0..8)
+            .map(|i| match fuses.olmc_type(i, mode) {
+                t @ OLMCType::Reg => ElaboratedOLMC::Registered {
+                    idx: i,
+                    d: Xor { sig: Self::or_term(fuses, cols, i, t), xor: fuses.xor(i) },
+                },
+                _ => unimplemented!(),
+            })
+            .collect()
     }
 
-    fn col_signals(mode: Mode, olmcs: &[OLMC]) -> Vec<ColSignal> {
+    fn col_signals(mode: Mode, fuses: &Fuses) -> Vec<ColSignal> {
         fn push_pair(sigs: &mut Vec<ColSignal>, sig: ColSignal) {
             sigs.push(sig);
             sigs.push(sig.inverted());
@@ -233,7 +336,7 @@ impl Gal16V8 {
                 for i in 0..8 {
                     // i ∈ [0, 7] is macrocell index
                     push_pair(&mut sigs, ColSignal::pin(i as u32 + 2));
-                    push_pair(&mut sigs, Self::olmc_feedback(mode, olmcs, i));
+                    push_pair(&mut sigs, fuses.olmc_type(i, mode).feedback(i));
                 }
 
                 sigs
@@ -242,69 +345,24 @@ impl Gal16V8 {
         }
     }
 
-    pub fn out_buffer(&self, olmc_idx: usize) -> OutBuffer {
-        let olmc = &self.olmcs[olmc_idx];
-        match self.mode {
-            Mode::Registered => {
-                if !olmc.ac1 {
-                    // registered
-                    OutBuffer {
-                        inverted: true,
-                        oe: OE::OEPin,
-                        sig: OutSig::FlopOut(olmc_idx),
-                    }
-                } else {
-                    // combinatorial
-                    OutBuffer {
-                        inverted: true,
-                        oe: OE::ProdTerm(self.rows[olmc_idx * 8].clone()),
-                        sig: OutSig::SumTerm {
-                            term: self.or_term(olmc_idx),
-                            xor: olmc.xor,
-                        },
-                    }
-                }
-            }
+    fn or_term(fuses: &Fuses, cols: &[ColSignal], olmc_idx: OLMCIdx, olmc_ty: OLMCType) -> SumTerm {
+        let col_idxs = match olmc_ty {
+            OLMCType::Reg => olmc_idx * 8..olmc_idx * 8 + 8,
+            OLMCType::CombFeedback => olmc_idx * 8 + 1..olmc_idx * 8 + 8,
             _ => unimplemented!(),
-        }
-    }
-
-    pub fn or_term(&self, olmc_idx: usize) -> SumTerm {
-        match self.mode {
-            Mode::Registered => {
-                let col_idxs = if !self.olmcs[olmc_idx].ac1 {
-                    // registered
-                    olmc_idx * 8..olmc_idx * 8 + 8
-                } else {
-                    // combinatorial
-                    olmc_idx * 8 + 1..olmc_idx * 8 + 8
-                };
-                SumTerm(
-                    col_idxs
-                        .filter(|&i| self.ptd[i] && !self.rows[i].is_always_bot())
-                        .map(|i| self.rows[i].clone())
-                        .collect(),
-                )
-            }
-
-            _ => unimplemented!(),
-        }
-    }
-
-    fn and_term(fuses: &[bool], cols: &[ColSignal], i: usize) -> ProdTerm {
-        ProdTerm(
-            Self::and_term_fuses(fuses, i)
-                .iter()
-                .zip(cols.iter())
-                .filter(|(&fuse, &_factor)| !fuse)
-                .map(|(&_fuse, &factor)| factor)
+        };
+        SumTerm(
+            col_idxs
+                .filter_map(|i| {
+                    let t = fuses.and_term(cols, i);
+                    if fuses.ptd(i) && !t.is_always_bot() {
+                        Some(t)
+                    } else {
+                        None
+                    }
+                })
                 .collect(),
         )
-    }
-
-    pub fn and_term_fuses(fuses: &[bool], i: usize) -> &[bool] {
-        assert!(i < 64);
-        &fuses[i * 32..i * 32 + 32]
     }
 }
 

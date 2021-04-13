@@ -8,7 +8,7 @@ use structopt::StructOpt;
 
 mod dev;
 
-use dev::gal16v8::{Gal16V8, Reducible, OLMC};
+use dev::gal16v8::{Gal16V8, Reducible};
 use dev::Device;
 
 #[derive(StructOpt)]
@@ -20,8 +20,8 @@ struct Opts {
     input_path: PathBuf,
 }
 
-fn dump_fuses(olmcs: &[OLMC], fuses: &[bool]) {
-    for (i, row) in fuses[0..=2047].chunks(32).enumerate() {
+fn dump_fuses(dev: &Gal16V8) {
+    for (i, row) in dev.fuses.grid().chunks(32).enumerate() {
         if i % 8 == 0 {
             let idx = i / 8;
             if i > 0 {
@@ -29,7 +29,9 @@ fn dump_fuses(olmcs: &[OLMC], fuses: &[bool]) {
             }
             println!(
                 "-- olmc{}: xor={}, ac1={} --",
-                idx, olmcs[idx].xor as u8, olmcs[idx].ac1 as u8
+                idx,
+                dev.fuses.xor(idx) as u8,
+                dev.fuses.ac1(idx) as u8
             );
         }
         print!("{}: ", format!("{:>4}", i * 32).red());
@@ -60,39 +62,46 @@ fn main() -> Result<()> {
             let lesb = Gal16V8::new(&jd.f)?;
             println!(
                 "mode: {:?} (syn={}, ac0={})",
-                lesb.mode, lesb.syn as u8, lesb.ac0 as u8
+                lesb.mode,
+                lesb.fuses.syn() as u8,
+                lesb.fuses.ac0() as u8
             );
-            println!("OLMCs:");
-            for (i, olmc) in lesb.olmcs.iter().enumerate() {
-                println!(" [{}] - {:?}", i, olmc);
-            }
-            println!("sig: {:?}", std::str::from_utf8(&lesb.signature).unwrap());
-            println!("ptd: {:?}", lesb.ptd);
+            println!(
+                "sig: {:?}",
+                String::from_utf8(lesb.fuses.signature()).unwrap()
+            );
 
-            dump_fuses(&lesb.olmcs, &lesb.fuses);
-            println!();
-            println!("{} signals", "column".blue());
-            print!("{{");
-            for (j, col) in lesb.cols.iter().enumerate() {
-                print!("{} => {},", j, format!("{}", col));
-            }
-            println!("}}");
-            println!();
-            for (i, term) in lesb.rows.iter().enumerate() {
-                if !term.is_always_bot() {
-                    println!(
-                        "{}/{}. {}",
-                        format!("{:>2}", i).red(),
-                        format!("{:>4}", i*32).red(),
-                        term
-                    );
-                }
-            }
+            dump_fuses(&lesb);
 
-            for i in 0..8 {
-                println!("{}. ┌ {}", i, lesb.or_term(i));
-                println!("   └ {:?}", lesb.out_buffer(i));
+            println!("reg q1, q2, q3, q4, q5, q6, q7;\n");
+
+            for (i, e) in lesb.elaboration.iter().enumerate() {
+                println!("/* OLMC {} */", i);
+                println!("{}", e);
             }
+            // println!();
+            // println!("{} signals", "column".blue());
+            // print!("{{");
+            // for (j, col) in lesb.cols.iter().enumerate() {
+            //     print!("{} => {},", j, format!("{}", col));
+            // }
+            // println!("}}");
+            // println!();
+            // for (i, term) in lesb.rows.iter().enumerate() {
+            //     if !term.is_always_bot() {
+            //         println!(
+            //             "{}/{}. {}",
+            //             format!("{:>2}", i).red(),
+            //             format!("{:>4}", i*32).red(),
+            //             term
+            //         );
+            //     }
+            // }
+
+            // for i in 0..8 {
+            //     println!("{}. ┌ {}", i, lesb.or_term(i));
+            //     println!("   └ {:?}", lesb.out_buffer(i));
+            // }
         }
     }
 
