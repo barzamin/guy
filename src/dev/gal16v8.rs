@@ -149,6 +149,14 @@ impl Fuses {
                 } else {
                     OLMCType::Reg
                 }
+            },
+            Mode::Complex => {
+                assert!(self.ac1(idx));
+                if idx == 0 || idx == 7 {
+                    OLMCType::Comb
+                } else {
+                    OLMCType::CombFeedback
+                }
             }
             _ => unimplemented!(),
         }
@@ -254,7 +262,7 @@ impl Gal16V8 {
                             xor: fuses.xor(i),
                         },
                     },
-                    OLMCType::CombFeedback => ElaboratedOLMC::Complex {
+                    OLMCType::Comb | OLMCType::CombFeedback => ElaboratedOLMC::Complex {
                         idx: i,
                         d: Xor {
                             sig: Self::or_term(fuses, cols, i, ty),
@@ -287,15 +295,25 @@ impl Gal16V8 {
                 }
 
                 sigs
-            }
-            _ => unimplemented!(),
+            },
+            Mode::Complex => {
+                let mut sigs = Vec::new();
+                push_pair(&mut sigs, ColSignal::pin(1));
+                for i in 1..7 {
+                    push_pair(&mut sigs, ColSignal::pin(19-i));
+                }
+                push_pair(&mut sigs, ColSignal::pin(11));
+
+                sigs
+            },
+            Mode::Simple => unimplemented!(),
         }
     }
 
     fn or_term(fuses: &Fuses, cols: &[ColSignal], olmc_idx: OLMCIdx, olmc_ty: OLMCType) -> SumTerm {
         let col_idxs = match olmc_ty {
             OLMCType::Reg => olmc_idx * 8..olmc_idx * 8 + 8,
-            OLMCType::CombFeedback => olmc_idx * 8 + 1..olmc_idx * 8 + 8,
+            OLMCType::Comb | OLMCType::CombFeedback => olmc_idx * 8 + 1..olmc_idx * 8 + 8,
             _ => unimplemented!(),
         };
         SumTerm(

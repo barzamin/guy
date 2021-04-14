@@ -69,18 +69,18 @@ fn main() -> Result<()> {
     match opt.device {
         Device::Gal16V8 => {
             let lesb = Gal16V8::new(&jd.f)?;
-            // println!(
-            //     "mode: {:?} (syn={}, ac0={})",
-            //     lesb.mode,
-            //     lesb.fuses.syn() as u8,
-            //     lesb.fuses.ac0() as u8
-            // );
-            // println!(
-            //     "sig: {:?}",
-            //     String::from_utf8(lesb.fuses.signature()).unwrap()
-            // );
+            println!(
+                "mode: {:?} (syn={}, ac0={})",
+                lesb.mode,
+                lesb.fuses.syn() as u8,
+                lesb.fuses.ac0() as u8
+            );
+            println!(
+                "sig: {:?}",
+                String::from_utf8(lesb.fuses.signature()).unwrap()
+            );
 
-            // dump_fuses(&lesb);
+            dump_fuses(&lesb);
             let mut out = String::new();
             lesb.emit(&mut out, &EmitCtx { portmap })?;
             println!("{}", out);
