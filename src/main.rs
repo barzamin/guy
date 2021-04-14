@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self, File};
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -11,12 +11,15 @@ mod emit;
 
 use dev::gal16v8::{Gal16V8, Reducible};
 use dev::Device;
-use emit::Emit;
+use emit::{Emit, EmitCtx, Portmap};
 
 #[derive(StructOpt)]
 struct Opts {
     #[structopt(long, short, possible_values = &Device::variants(), case_insensitive = true)]
     device: Device,
+
+    #[structopt(long, short, parse(from_os_str))]
+    portmap: Option<PathBuf>,
 
     #[structopt(name = "FILE", parse(from_os_str))]
     input_path: PathBuf,
@@ -57,24 +60,30 @@ fn dump_fuses(dev: &Gal16V8) {
 fn main() -> Result<()> {
     let opt = Opts::from_args();
     let dat = fs::read(opt.input_path)?;
+    let portmap = match opt.portmap {
+        Some(path) => Portmap::deser(File::open(path)?)?,
+        None => Portmap::new(),
+    };
     let jd = JEDECFile::from_bytes(&dat)?;
 
     match opt.device {
         Device::Gal16V8 => {
             let lesb = Gal16V8::new(&jd.f)?;
-            println!(
-                "mode: {:?} (syn={}, ac0={})",
-                lesb.mode,
-                lesb.fuses.syn() as u8,
-                lesb.fuses.ac0() as u8
-            );
-            println!(
-                "sig: {:?}",
-                String::from_utf8(lesb.fuses.signature()).unwrap()
-            );
+            // println!(
+            //     "mode: {:?} (syn={}, ac0={})",
+            //     lesb.mode,
+            //     lesb.fuses.syn() as u8,
+            //     lesb.fuses.ac0() as u8
+            // );
+            // println!(
+            //     "sig: {:?}",
+            //     String::from_utf8(lesb.fuses.signature()).unwrap()
+            // );
 
-            dump_fuses(&lesb);
-            println!("{}", lesb.emit()?);
+            // dump_fuses(&lesb);
+            let mut out = String::new();
+            lesb.emit(&mut out, &EmitCtx { portmap })?;
+            println!("{}", out);
         }
     }
 

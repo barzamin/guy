@@ -7,6 +7,10 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 structopt = "0.3"
-jedec = "0.0.3"
+
 colored = "2.0"
 indenter = { version = "0.3", features = ["std"] }
+
+ron = "0.6"
+
+jedec = "0.0.3"

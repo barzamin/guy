@@ -1,13 +1,15 @@
-use std::fmt::{self, Write};
 use anyhow::Result;
 use indenter::indented;
+use std::fmt::{self, Write};
 
+use super::{ColSignal, ElaboratedOLMC, Gal16V8, ProdTerm, SumTerm, Xor};
+use crate::emit::{Emit, EmitCtx};
 
-use crate::emit::Emit;
-use super::{ElaboratedOLMC, Xor, ColSignal, ProdTerm, SumTerm, Gal16V8};
-
-impl fmt::Display for ElaboratedOLMC {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Emit for ElaboratedOLMC {
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
         use ElaboratedOLMC::*;
         match self {
             Registered { idx, d } => {
@@ -15,60 +17,65 @@ impl fmt::Display for ElaboratedOLMC {
                     writeln!(
                         f,
                         "assign {} = oe ? {} : 1'bz;",
-                        format!("p{}", self.outpin()),
+                        ctx.pin(self.outpin()),
                         format!("1'b{}", val as u8)
                     )?;
                 } else {
                     writeln!(f, "always @(posedge clk)")?;
-                    writeln!(f, "  {} <= {};", format!("q{}", idx), d)?;
+                    write!(f, "  {} <= ", format!("q{}", idx))?;
+                    d.emit(f, ctx)?;
+                    writeln!(f, ";")?;
                     writeln!(
                         f,
                         "assign {} = oe ? {} : 1'bz;",
-                        format!("p{}", self.outpin()),
+                        ctx.pin(self.outpin()),
                         format!("q{}", idx)
                     )?;
                 }
             }
             Complex { idx, d, oe } => {
-                writeln!(
-                    f,
-                    "assign {} = ({}) ? {} : 1'bz;",
-                    format!("p{}", self.outpin()),
-                    oe,
-                    d
-                )?;
+                write!(f, "assign {} = (", ctx.pin(self.outpin()))?;
+                oe.emit(f, &ctx)?;
+                write!(f, ") ? ")?;
+                d.emit(f, &ctx)?;
+                writeln!(f, " : 1'bz;")?;
             }
         }
+        writeln!(f)?;
 
         Ok(())
     }
 }
 
-
-impl<T> fmt::Display for Xor<T>
+impl<T> Emit for Xor<T>
 where
-    T: fmt::Display,
+    T: Emit,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
         if self.xor {
             write!(f, "~")?;
         }
 
-        write!(f, "{}", self.sig)?;
+        self.sig.emit(f, ctx)?;
 
         Ok(())
     }
 }
 
-
-impl fmt::Display for ColSignal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Emit for ColSignal {
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
         match *self {
             ColSignal::Pin { id, n } => {
                 if n {
                     write!(f, "~")?;
                 }
-                write!(f, "p{}", id)?;
+                write!(f, "{}", ctx.pin(id))?;
             }
             ColSignal::FlopOut { olmc, n } => {
                 if n {
@@ -82,16 +89,18 @@ impl fmt::Display for ColSignal {
     }
 }
 
-
-impl fmt::Display for ProdTerm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Emit for ProdTerm {
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
         let encl = self.0.len() > 1;
         let mut factors = self.0.iter().peekable();
         if encl {
             write!(f, "(")?;
         }
         while let Some(factor) = factors.next() {
-            write!(f, "{}", factor)?;
+            factor.emit(f, ctx)?;
             if factors.peek().is_some() {
                 write!(f, " & ")?;
             }
@@ -104,8 +113,11 @@ impl fmt::Display for ProdTerm {
     }
 }
 
-impl fmt::Display for SumTerm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Emit for SumTerm {
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
         if self.0.len() == 0 {
             write!(f, "1'b0")?;
         } else {
@@ -114,7 +126,7 @@ impl fmt::Display for SumTerm {
                 write!(f, "(")?;
             }
             while let Some(term) = terms.next() {
-                write!(f, "{}", term)?;
+                term.emit(f, ctx)?;
                 if terms.peek().is_some() {
                     write!(f, " | ")?;
                 }
@@ -128,9 +140,11 @@ impl fmt::Display for SumTerm {
 }
 
 impl Emit for Gal16V8 {
-    fn emit(&self) -> Result<String> {
-        let mut out = String::new();
-        let mut f = indented(&mut out).with_str("");
+    fn emit<W>(&self, f: &mut W, ctx: &EmitCtx) -> Result<()>
+    where
+        W: fmt::Write,
+    {
+        let mut f = indented(f).with_str("");
         writeln!(f, "module GAL16V8 (")?;
         // writeln!(f, "  {}", )?;
         writeln!(f, ");\n")?;
@@ -142,12 +156,12 @@ impl Emit for Gal16V8 {
                     writeln!(f, "reg q{};", idx)?;
                 }
             }
-            writeln!(f, "{}", e)?;
+            e.emit(&mut f, ctx)?;
         }
 
         f = f.with_str("");
         writeln!(f, "endmodule")?;
 
-        Ok(out)
+        Ok(())
     }
 }

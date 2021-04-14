@@ -33,7 +33,7 @@ impl OLMCType {
     pub fn feedback(&self, idx: OLMCIdx) -> ColSignal {
         match *self {
             Self::Reg => ColSignal::flop(idx).inverted(),
-            Self::CombFeedback => ColSignal::pin(19 - idx as u32), // olmc i has pin 19-i for i∈[0,7]
+            Self::CombFeedback => ColSignal::pin(19 - idx), // olmc i has pin 19-i for i∈[0,7]
             _ => unimplemented!(),
         }
     }
@@ -64,7 +64,7 @@ pub enum Mode {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColSignal {
-    Pin { id: u32, n: bool },
+    Pin { id: usize, n: bool },
     FlopOut { olmc: usize, n: bool },
 }
 
@@ -88,7 +88,6 @@ impl ElaboratedOLMC {
         }
     }
 }
-
 
 impl Fuses {
     pub fn new(inner: Vec<bool>) -> Result<Self> {
@@ -214,7 +213,7 @@ impl ColSignal {
         Self::FlopOut { olmc, n: false }
     }
 
-    const fn pin(id: u32) -> ColSignal {
+    const fn pin(id: usize) -> ColSignal {
         Self::Pin { id, n: false }
     }
 
@@ -261,7 +260,7 @@ impl Gal16V8 {
                             sig: Self::or_term(fuses, cols, i, ty),
                             xor: fuses.xor(i),
                         },
-                        oe: fuses.and_term(cols, i*8),
+                        oe: fuses.and_term(cols, i * 8),
                     },
                     _ => unimplemented!(),
                 }
@@ -283,7 +282,7 @@ impl Gal16V8 {
                 let mut sigs = Vec::new();
                 for i in 0..8 {
                     // i ∈ [0, 7] is macrocell index
-                    push_pair(&mut sigs, ColSignal::pin(i as u32 + 2));
+                    push_pair(&mut sigs, ColSignal::pin(i + 2));
                     push_pair(&mut sigs, fuses.olmc_type(i, mode).feedback(i));
                 }
 
