@@ -16,9 +16,9 @@ impl Emit for ElaboratedOLMC {
                 if let Some(val) = d.trivially_const() {
                     writeln!(
                         f,
-                        "assign {} = oe ? {} : 1'bz;",
+                        "assign {} = ~oe ? {} : 1'bz;",
                         ctx.pin(self.outpin()),
-                        format!("1'b{}", val as u8)
+                        format!("1'b{}", !val as u8)
                     )?;
                 } else {
                     writeln!(f, "always @(posedge clk)")?;
@@ -27,7 +27,7 @@ impl Emit for ElaboratedOLMC {
                     writeln!(f, ";")?;
                     writeln!(
                         f,
-                        "assign {} = oe ? {} : 1'bz;",
+                        "assign {} = ~oe ? ~{} : 1'bz;",
                         ctx.pin(self.outpin()),
                         format!("q{}", idx)
                     )?;
