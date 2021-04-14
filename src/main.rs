@@ -7,9 +7,11 @@ use jedec::JEDECFile;
 use structopt::StructOpt;
 
 mod dev;
+mod emit;
 
 use dev::gal16v8::{Gal16V8, Reducible};
 use dev::Device;
+use emit::Emit;
 
 #[derive(StructOpt)]
 struct Opts {
@@ -72,36 +74,7 @@ fn main() -> Result<()> {
             );
 
             dump_fuses(&lesb);
-
-            println!("reg q1, q2, q3, q4, q5, q6, q7;\n");
-
-            for (i, e) in lesb.elaboration.iter().enumerate() {
-                println!("/* OLMC {} */", i);
-                println!("{}", e);
-            }
-            // println!();
-            // println!("{} signals", "column".blue());
-            // print!("{{");
-            // for (j, col) in lesb.cols.iter().enumerate() {
-            //     print!("{} => {},", j, format!("{}", col));
-            // }
-            // println!("}}");
-            // println!();
-            // for (i, term) in lesb.rows.iter().enumerate() {
-            //     if !term.is_always_bot() {
-            //         println!(
-            //             "{}/{}. {}",
-            //             format!("{:>2}", i).red(),
-            //             format!("{:>4}", i*32).red(),
-            //             term
-            //         );
-            //     }
-            // }
-
-            // for i in 0..8 {
-            //     println!("{}. ┌ {}", i, lesb.or_term(i));
-            //     println!("   └ {:?}", lesb.out_buffer(i));
-            // }
+            println!("{}", lesb.emit()?);
         }
     }
 
