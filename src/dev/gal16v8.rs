@@ -298,10 +298,13 @@ impl Gal16V8 {
             },
             Mode::Complex => {
                 let mut sigs = Vec::new();
+                push_pair(&mut sigs, ColSignal::pin(2));
                 push_pair(&mut sigs, ColSignal::pin(1));
                 for i in 1..7 {
+                    push_pair(&mut sigs, ColSignal::pin(i + 2));
                     push_pair(&mut sigs, ColSignal::pin(19-i));
                 }
+                push_pair(&mut sigs, ColSignal::pin(9));
                 push_pair(&mut sigs, ColSignal::pin(11));
 
                 sigs
